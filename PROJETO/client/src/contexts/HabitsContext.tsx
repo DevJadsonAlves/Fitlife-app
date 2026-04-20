@@ -9,6 +9,7 @@ import React, {
 } from "react";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
+import { logAuditEvent } from "@/lib/audit";
 
 // Types
 export interface WaterEntry {
@@ -1939,6 +1940,11 @@ export function HabitsProvider({ children }: { children: React.ReactNode }) {
     writeGamificationResetAt(user.id, resetAt);
     setGamificationResetAt(resetAt);
     setAchievements(freshAchievements());
+    void logAuditEvent({
+      action: "gamification_reset",
+      scope: "profile",
+      metadata: { resetAt },
+    });
   };
 
   const resetAllData = async () => {
@@ -2035,6 +2041,13 @@ export function HabitsProvider({ children }: { children: React.ReactNode }) {
     setUserProfileState(defaultProfile);
     setGoalsState(defaultGoals);
     setAchievements(freshAchievements());
+    void logAuditEvent({
+      action: "full_data_reset",
+      scope: "profile",
+      metadata: {
+        removedProgressPhotos: progressPhotoStoragePaths.length,
+      },
+    });
   };
 
   const addProgressPhoto = async (photo: Omit<ProgressPhoto, "id">) => {
@@ -2123,6 +2136,14 @@ export function HabitsProvider({ children }: { children: React.ReactNode }) {
     if (error) throw error;
 
     setFastingSessions(prev => [...prev, mapFastingSessionRow(data)]);
+    void logAuditEvent({
+      action: "fasting_started",
+      scope: "fasting",
+      metadata: {
+        durationHours: parsedDuration,
+        startTime: parsedStartTime.toISOString(),
+      },
+    });
   };
 
   const updateActiveFasting = async ({
@@ -2165,6 +2186,20 @@ export function HabitsProvider({ children }: { children: React.ReactNode }) {
         session.id === active.id ? mapFastingSessionRow(data) : session
       )
     );
+
+    void logAuditEvent({
+      action: "fasting_updated",
+      scope: "fasting",
+      metadata: {
+        sessionId: active.id,
+        durationHours:
+          typeof updates.target_duration === "number"
+            ? updates.target_duration
+            : undefined,
+        startTime:
+          typeof updates.start_time === "string" ? updates.start_time : undefined,
+      },
+    });
   };
 
   const endFasting = async () => {
@@ -2197,6 +2232,17 @@ export function HabitsProvider({ children }: { children: React.ReactNode }) {
     } else {
       toast.info("Jejum encerrado antes da meta.");
     }
+
+    void logAuditEvent({
+      action: "fasting_ended",
+      scope: "fasting",
+      metadata: {
+        sessionId: active.id,
+        completedGoal,
+        targetDuration: active.targetDuration,
+        elapsedHours: Number(elapsedHours.toFixed(2)),
+      },
+    });
   };
 
   const removeFastingSession = async (id: string) => {
@@ -2207,6 +2253,11 @@ export function HabitsProvider({ children }: { children: React.ReactNode }) {
     if (error) throw error;
 
     setFastingSessions(prev => prev.filter(s => s.id !== id));
+    void logAuditEvent({
+      action: "fasting_session_deleted",
+      scope: "fasting",
+      metadata: { sessionId: id },
+    });
   };
 
   const addCustomHabit = async (

@@ -38,6 +38,12 @@ npm run vercel:pull:preview
 npm run vercel:pull:prod
 ```
 
+## Observabilidade (opcional, recomendado)
+
+Para habilitar auditoria e log de erros no Supabase, rode:
+
+- `supabase_security_observability_schema.sql`
+
 ## Fluxo recomendado
 
 1. Desenvolver localmente com `npm run dev`

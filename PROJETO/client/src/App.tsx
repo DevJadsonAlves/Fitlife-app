@@ -23,6 +23,7 @@ import { useState, useEffect } from "react";
 import { isSupabaseConfigured, supabase } from "./lib/supabase";
 import { Session } from "@supabase/supabase-js";
 import { MotionConfig } from "framer-motion";
+import { installGlobalErrorHandlers } from "./lib/observability";
 
 const AUTH_BOOT_TIMEOUT_MS = 8000;
 const MOBILE_PERF_MEDIA_QUERY = "(max-width: 768px), (pointer: coarse), (prefers-reduced-motion: reduce)";
@@ -125,6 +126,10 @@ function App() {
       subscription.unsubscribe();
     };
   }, [setLocation]);
+
+  useEffect(() => {
+    return installGlobalErrorHandlers();
+  }, []);
 
   if (loading) {
     return (

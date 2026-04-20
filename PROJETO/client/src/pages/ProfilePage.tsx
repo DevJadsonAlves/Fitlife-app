@@ -2,15 +2,51 @@
 import { useHabits, type UserProfile } from "@/contexts/HabitsContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import { motion } from "framer-motion";
-import { User, Save, Calculator, Activity, Target, Bell, BellOff, CheckCircle2, Trash2, AlertTriangle, LogOut, Sun, Moon } from "lucide-react";
+import { User, Save, Calculator, Activity, Target, Bell, BellOff, CheckCircle2, Trash2, AlertTriangle, LogOut, Sun, Moon, Download, Bug } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
+import { logAuditEvent } from "@/lib/audit";
+import { getLocalClientErrors } from "@/lib/observability";
+
+const EXPORT_USER_TABLES = [
+  "water_entries",
+  "workout_entries",
+  "food_entries",
+  "saved_meals",
+  "food_library",
+  "sleep_entries",
+  "weight_entries",
+  "body_measurements",
+  "progress_photos",
+  "fasting_sessions",
+  "custom_habits",
+  "custom_habit_logs",
+  "unlocked_achievements",
+  "user_goals",
+] as const;
+
+function downloadJsonFile(filename: string, payload: unknown) {
+  const blob = new Blob([JSON.stringify(payload, null, 2)], {
+    type: "application/json",
+  });
+
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  URL.revokeObjectURL(url);
+}
 
 export default function ProfilePage() {
   const { userProfile, setUserProfile, requestNotificationPermission, resetAllData, resetAchievements } = useHabits();
   const { theme, toggleTheme } = useTheme();
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [resetting, setResetting] = useState<"all" | "gamification" | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [exportingDiagnostics, setExportingDiagnostics] = useState(false);
   const [formData, setFormData] = useState<UserProfile>(userProfile || {
     name: "",
     age: 25,
@@ -80,6 +116,10 @@ export default function ProfilePage() {
       setResetting("all");
       try {
         await resetAllData();
+        void logAuditEvent({
+          action: "full_data_reset_from_profile",
+          scope: "profile",
+        });
         toast.success("Todos os dados foram apagados.");
         window.location.href = "/";
       } catch (error) {
@@ -95,6 +135,10 @@ export default function ProfilePage() {
       setResetting("gamification");
       try {
         await resetAchievements();
+        void logAuditEvent({
+          action: "gamification_reset_from_profile",
+          scope: "profile",
+        });
         toast.success("Gamificação resetada!");
       } catch (error) {
         console.error("Erro ao resetar gamificação:", error);
@@ -106,7 +150,91 @@ export default function ProfilePage() {
   };
 
   const handleSignOut = async () => {
+    await logAuditEvent({
+      action: "sign_out",
+      scope: "auth",
+    });
     await supabase.auth.signOut();
+  };
+
+  const handleExportData = async () => {
+    setExporting(true);
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        toast.error("Usuário não autenticado.");
+        return;
+      }
+
+      const [profileResult, ...tableResults] = await Promise.all([
+        supabase.from("profiles").select("*").eq("id", user.id).maybeSingle(),
+        ...EXPORT_USER_TABLES.map(table =>
+          supabase.from(table).select("*").eq("user_id", user.id)
+        ),
+      ]);
+
+      if (profileResult.error) throw profileResult.error;
+
+      const exportTables = EXPORT_USER_TABLES.reduce<Record<string, unknown[]>>(
+        (acc, table, index) => {
+          const result = tableResults[index];
+          if (result.error) throw result.error;
+          acc[table] = result.data ?? [];
+          return acc;
+        },
+        {}
+      );
+
+      const nowIso = new Date().toISOString();
+      const fileDate = nowIso.slice(0, 10);
+
+      const exportPayload = {
+        app: "FitLife",
+        version: "1.0",
+        exportedAt: nowIso,
+        userId: user.id,
+        profile: profileResult.data ?? null,
+        tables: exportTables,
+      };
+
+      downloadJsonFile(`fitlife-backup-${fileDate}.json`, exportPayload);
+      void logAuditEvent({
+        action: "data_export",
+        scope: "profile",
+        metadata: {
+          tableCount: EXPORT_USER_TABLES.length + 1,
+        },
+      });
+      toast.success("Backup exportado com sucesso.");
+    } catch (error) {
+      console.error("Erro ao exportar dados:", error);
+      toast.error("Não foi possível exportar os dados.");
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handleExportDiagnostics = () => {
+    setExportingDiagnostics(true);
+    try {
+      const errors = getLocalClientErrors();
+      const payload = {
+        app: "FitLife",
+        exportedAt: new Date().toISOString(),
+        errors,
+      };
+
+      downloadJsonFile("fitlife-diagnostico-client.json", payload);
+      toast.success(`Diagnóstico exportado (${errors.length} erros locais).`);
+    } catch (error) {
+      console.error("Erro ao exportar diagnóstico:", error);
+      toast.error("Não foi possível exportar o diagnóstico.");
+    } finally {
+      setExportingDiagnostics(false);
+    }
   };
 
   return (
@@ -285,6 +413,37 @@ export default function ProfilePage() {
                 As metas são ajustadas automaticamente para ajudar você a atingir seu objetivo de forma saudável.
               </p>
             </div>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/5 p-5 space-y-3">
+          <p className="text-xs font-bold uppercase tracking-wider text-cyan-300">
+            Backup e Diagnóstico
+          </p>
+          <p className="text-sm text-muted-foreground">
+            Exporte um backup completo em JSON e um diagnóstico técnico local para facilitar suporte e investigação.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={handleExportData}
+              disabled={exporting || resetting !== null}
+              className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-cyan-500/30 bg-cyan-500/10 text-cyan-300 text-sm font-semibold hover:bg-cyan-500/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Download className="w-4 h-4" />
+              {exporting ? "Exportando..." : "Exportar Dados (JSON)"}
+            </button>
+            <button
+              type="button"
+              onClick={handleExportDiagnostics}
+              disabled={exportingDiagnostics || resetting !== null}
+              className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-300 text-sm font-semibold hover:bg-amber-500/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Bug className="w-4 h-4" />
+              {exportingDiagnostics
+                ? "Gerando diagnóstico..."
+                : "Exportar Diagnóstico"}
+            </button>
           </div>
         </div>
 

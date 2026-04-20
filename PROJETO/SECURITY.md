@@ -15,6 +15,7 @@ Report privately to the repository owner first and include:
 - Environment files are ignored by default (`.env*`, except `.env.example`).
 - CI runs automated secret scanning on push and pull request.
 - Dependency review runs automatically on pull requests.
+- Observability/audit tables are available via `supabase_security_observability_schema.sql`.
 
 ## Secret Rotation Checklist
 If any token/key is exposed (even in screenshots):
