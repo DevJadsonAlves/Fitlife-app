@@ -1,8 +1,36 @@
 ﻿import { useState, useEffect } from "react";
-import { useHabits, type UserProfile } from "@/contexts/HabitsContext";
+import {
+  useHabits,
+  type NotificationDay,
+  type NotificationPreferences,
+  type NotificationTestType,
+  type UserProfile,
+} from "@/contexts/HabitsContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import { motion } from "framer-motion";
-import { User, Save, Calculator, Activity, Target, Bell, BellOff, CheckCircle2, Trash2, AlertTriangle, LogOut, Sun, Moon, Download, Bug } from "lucide-react";
+import {
+  User,
+  Save,
+  Calculator,
+  Activity,
+  Target,
+  Bell,
+  BellOff,
+  CheckCircle2,
+  Trash2,
+  AlertTriangle,
+  LogOut,
+  Sun,
+  Moon,
+  Download,
+  Bug,
+  Flame,
+  Droplets,
+  UtensilsCrossed,
+  Dumbbell,
+  MoonStar,
+  CalendarCheck2,
+} from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { logAuditEvent } from "@/lib/audit";
@@ -23,7 +51,32 @@ const EXPORT_USER_TABLES = [
   "custom_habit_logs",
   "unlocked_achievements",
   "user_goals",
+  "notification_preferences",
 ] as const;
+
+const WEEK_DAY_OPTIONS: Array<{ day: NotificationDay; label: string }> = [
+  { day: "sun", label: "D" },
+  { day: "mon", label: "S" },
+  { day: "tue", label: "T" },
+  { day: "wed", label: "Q" },
+  { day: "thu", label: "Q" },
+  { day: "fri", label: "S" },
+  { day: "sat", label: "S" },
+];
+
+const NOTIFICATION_TEST_ACTIONS: Array<{
+  type: NotificationTestType;
+  label: string;
+}> = [
+  { type: "water", label: "Teste Agua" },
+  { type: "meal", label: "Teste Refeicao" },
+  { type: "workout", label: "Teste Treino" },
+  { type: "fasting_start", label: "Teste Inicio Jejum" },
+  { type: "fasting_phase", label: "Teste Fase Jejum" },
+  { type: "fasting_end", label: "Teste Fim Jejum" },
+  { type: "sleep", label: "Teste Sono" },
+  { type: "daily_summary", label: "Teste Resumo Diario" },
+];
 
 function downloadJsonFile(filename: string, payload: unknown) {
   const blob = new Blob([JSON.stringify(payload, null, 2)], {
@@ -41,12 +94,23 @@ function downloadJsonFile(filename: string, payload: unknown) {
 }
 
 export default function ProfilePage() {
-  const { userProfile, setUserProfile, requestNotificationPermission, resetAllData, resetAchievements } = useHabits();
+  const {
+    userProfile,
+    setUserProfile,
+    requestNotificationPermission,
+    resetAllData,
+    resetAchievements,
+    notificationPreferences,
+    setNotificationPreferences,
+    sendTestNotification,
+  } = useHabits();
   const { theme, toggleTheme } = useTheme();
-  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [resetting, setResetting] = useState<"all" | "gamification" | null>(null);
   const [exporting, setExporting] = useState(false);
   const [exportingDiagnostics, setExportingDiagnostics] = useState(false);
+  const [savingNotificationPrefs, setSavingNotificationPrefs] = useState(false);
+  const [sendingTestType, setSendingTestType] =
+    useState<NotificationTestType | null>(null);
   const [formData, setFormData] = useState<UserProfile>(userProfile || {
     name: "",
     age: 25,
@@ -101,13 +165,45 @@ export default function ProfilePage() {
     toast.success("Perfil e metas atualizados!");
   };
 
-  const handleToggleNotifications = async () => {
+  const updateNotificationPrefs = async (
+    updates: Partial<NotificationPreferences>
+  ) => {
+    setSavingNotificationPrefs(true);
+    try {
+      await setNotificationPreferences(updates);
+    } catch (error) {
+      console.error("Erro ao atualizar notificacoes:", error);
+      toast.error("Nao foi possivel atualizar as notificacoes.");
+    } finally {
+      setSavingNotificationPrefs(false);
+    }
+  };
+
+  const handleEnableNotifications = async () => {
     const granted = await requestNotificationPermission();
     if (granted) {
-      setNotificationsEnabled(!notificationsEnabled);
-      toast.success(notificationsEnabled ? "Lembretes desativados" : "Lembretes ativados!");
+      toast.success("Permissao de notificacao concedida.");
     } else {
-      toast.error("Permissão de notificação negada");
+      toast.error("Permissao de notificacao negada.");
+    }
+  };
+
+  const toggleActiveDay = async (day: NotificationDay) => {
+    const days = notificationPreferences.activeDays.includes(day)
+      ? notificationPreferences.activeDays.filter(item => item !== day)
+      : [...notificationPreferences.activeDays, day];
+
+    await updateNotificationPrefs({
+      activeDays: days.length > 0 ? days : [day],
+    });
+  };
+
+  const handleSendTestNotification = async (type: NotificationTestType) => {
+    setSendingTestType(type);
+    try {
+      await sendTestNotification(type);
+    } finally {
+      setSendingTestType(null);
     }
   };
 
@@ -378,24 +474,11 @@ export default function ProfilePage() {
           </button>
           
           <button
-            onClick={handleToggleNotifications}
-            className={`py-3.5 rounded-xl border font-bold transition-all flex items-center justify-center gap-2 active:scale-[0.98] ${
-              notificationsEnabled 
-                ? "bg-blue-500/10 border-blue-500/30 text-blue-400" 
-                : "bg-orange-500/10 border-orange-500/30 text-orange-400 hover:bg-orange-500/20"
-            }`}
+            onClick={handleEnableNotifications}
+            className="py-3.5 rounded-xl border border-blue-500/30 bg-blue-500/10 text-blue-300 font-bold transition-all flex items-center justify-center gap-2 active:scale-[0.98] hover:bg-blue-500/20"
           >
-            {notificationsEnabled ? (
-              <>
-                <Bell className="w-4 h-4" />
-                Lembretes Ativados
-              </>
-            ) : (
-              <>
-                <BellOff className="w-4 h-4" />
-                Ativar Lembretes
-              </>
-            )}
+            <Bell className="w-4 h-4" />
+            Permitir Notificacoes
           </button>
         </div>
 
@@ -412,6 +495,369 @@ export default function ProfilePage() {
                 Nossa inteligência calcula suas metas ideais de calorias e nutrientes baseada no seu corpo e nível de atividade física. 
                 As metas são ajustadas automaticamente para ajudar você a atingir seu objetivo de forma saudável.
               </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-sky-500/20 bg-sky-500/5 p-5 space-y-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wider text-sky-300">
+                Notificacoes Inteligentes
+              </p>
+              <p className="text-sm text-muted-foreground mt-1">
+                Ajuste horarios, intensidade, dias da semana e teste cada tipo de alerta.
+              </p>
+            </div>
+            <button
+              type="button"
+              disabled={savingNotificationPrefs}
+              onClick={() =>
+                void updateNotificationPrefs({
+                  enabled: !notificationPreferences.enabled,
+                })
+              }
+              className={`px-3 py-2 rounded-xl border text-xs font-bold transition-all disabled:opacity-50 ${
+                notificationPreferences.enabled
+                  ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-300"
+                  : "border-border/50 bg-secondary/20 text-muted-foreground"
+              }`}
+            >
+              {notificationPreferences.enabled ? "Notificacoes ON" : "Notificacoes OFF"}
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="rounded-xl border border-border/50 bg-secondary/15 p-3 space-y-2">
+              <label className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+                Intensidade
+              </label>
+              <select
+                value={notificationPreferences.frequency}
+                disabled={savingNotificationPrefs}
+                onChange={event =>
+                  void updateNotificationPrefs({
+                    frequency: event.target.value as NotificationPreferences["frequency"],
+                  })
+                }
+                className="w-full px-3 py-2 rounded-lg bg-background/70 border border-border/60 text-sm"
+              >
+                <option value="light">Leve</option>
+                <option value="normal">Normal</option>
+                <option value="strong">Forte</option>
+              </select>
+            </div>
+
+            <div className="rounded-xl border border-border/50 bg-secondary/15 p-3 space-y-2">
+              <label className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+                Dias Ativos
+              </label>
+              <div className="grid grid-cols-7 gap-2">
+                {WEEK_DAY_OPTIONS.map(option => (
+                  <button
+                    key={option.day}
+                    type="button"
+                    disabled={savingNotificationPrefs}
+                    onClick={() => void toggleActiveDay(option.day)}
+                    className={`h-9 rounded-lg border text-xs font-bold transition-all ${
+                      notificationPreferences.activeDays.includes(option.day)
+                        ? "border-sky-500/60 bg-sky-500/20 text-sky-300"
+                        : "border-border/50 bg-background/50 text-muted-foreground"
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-border/50 bg-secondary/15 p-3 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm font-bold text-foreground">Quiet Hours</p>
+              <button
+                type="button"
+                disabled={savingNotificationPrefs}
+                onClick={() =>
+                  void updateNotificationPrefs({
+                    quietHoursEnabled: !notificationPreferences.quietHoursEnabled,
+                  })
+                }
+                className={`px-3 py-1.5 rounded-lg border text-xs font-bold transition-all ${
+                  notificationPreferences.quietHoursEnabled
+                    ? "border-violet-500/50 bg-violet-500/20 text-violet-300"
+                    : "border-border/50 bg-background/50 text-muted-foreground"
+                }`}
+              >
+                {notificationPreferences.quietHoursEnabled ? "Ativo" : "Inativo"}
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-[11px] text-muted-foreground">Inicio</label>
+                <input
+                  type="time"
+                  value={notificationPreferences.quietStart}
+                  onChange={event =>
+                    void updateNotificationPrefs({ quietStart: event.target.value })
+                  }
+                  className="w-full px-3 py-2 rounded-lg bg-background/70 border border-border/60 text-sm"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[11px] text-muted-foreground">Fim</label>
+                <input
+                  type="time"
+                  value={notificationPreferences.quietEnd}
+                  onChange={event =>
+                    void updateNotificationPrefs({ quietEnd: event.target.value })
+                  }
+                  className="w-full px-3 py-2 rounded-lg bg-background/70 border border-border/60 text-sm"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="rounded-xl border border-border/50 bg-secondary/15 p-3 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-bold text-cyan-300 flex items-center gap-2">
+                  <Droplets className="w-4 h-4" /> Agua
+                </p>
+                <button
+                  type="button"
+                  onClick={() =>
+                    void updateNotificationPrefs({
+                      waterEnabled: !notificationPreferences.waterEnabled,
+                    })
+                  }
+                  className={`px-2.5 py-1 rounded-md text-xs font-bold ${
+                    notificationPreferences.waterEnabled
+                      ? "bg-cyan-500/20 text-cyan-300"
+                      : "bg-secondary text-muted-foreground"
+                  }`}
+                >
+                  {notificationPreferences.waterEnabled ? "ON" : "OFF"}
+                </button>
+              </div>
+              <input
+                type="time"
+                value={notificationPreferences.waterTime}
+                onChange={event =>
+                  void updateNotificationPrefs({ waterTime: event.target.value })
+                }
+                className="w-full px-3 py-2 rounded-lg bg-background/70 border border-border/60 text-sm"
+              />
+            </div>
+
+            <div className="rounded-xl border border-border/50 bg-secondary/15 p-3 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-bold text-lime-300 flex items-center gap-2">
+                  <UtensilsCrossed className="w-4 h-4" /> Refeicoes
+                </p>
+                <button
+                  type="button"
+                  onClick={() =>
+                    void updateNotificationPrefs({
+                      mealEnabled: !notificationPreferences.mealEnabled,
+                    })
+                  }
+                  className={`px-2.5 py-1 rounded-md text-xs font-bold ${
+                    notificationPreferences.mealEnabled
+                      ? "bg-lime-500/20 text-lime-300"
+                      : "bg-secondary text-muted-foreground"
+                  }`}
+                >
+                  {notificationPreferences.mealEnabled ? "ON" : "OFF"}
+                </button>
+              </div>
+              <input
+                type="time"
+                value={notificationPreferences.mealTime}
+                onChange={event =>
+                  void updateNotificationPrefs({ mealTime: event.target.value })
+                }
+                className="w-full px-3 py-2 rounded-lg bg-background/70 border border-border/60 text-sm"
+              />
+            </div>
+
+            <div className="rounded-xl border border-border/50 bg-secondary/15 p-3 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-bold text-orange-300 flex items-center gap-2">
+                  <Dumbbell className="w-4 h-4" /> Treino
+                </p>
+                <button
+                  type="button"
+                  onClick={() =>
+                    void updateNotificationPrefs({
+                      workoutEnabled: !notificationPreferences.workoutEnabled,
+                    })
+                  }
+                  className={`px-2.5 py-1 rounded-md text-xs font-bold ${
+                    notificationPreferences.workoutEnabled
+                      ? "bg-orange-500/20 text-orange-300"
+                      : "bg-secondary text-muted-foreground"
+                  }`}
+                >
+                  {notificationPreferences.workoutEnabled ? "ON" : "OFF"}
+                </button>
+              </div>
+              <input
+                type="time"
+                value={notificationPreferences.workoutTime}
+                onChange={event =>
+                  void updateNotificationPrefs({ workoutTime: event.target.value })
+                }
+                className="w-full px-3 py-2 rounded-lg bg-background/70 border border-border/60 text-sm"
+              />
+            </div>
+
+            <div className="rounded-xl border border-border/50 bg-secondary/15 p-3 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-bold text-red-300 flex items-center gap-2">
+                  <Flame className="w-4 h-4" /> Jejum
+                </p>
+                <button
+                  type="button"
+                  onClick={() =>
+                    void updateNotificationPrefs({
+                      fastingStartEnabled: !notificationPreferences.fastingStartEnabled,
+                    })
+                  }
+                  className={`px-2.5 py-1 rounded-md text-xs font-bold ${
+                    notificationPreferences.fastingStartEnabled
+                      ? "bg-red-500/20 text-red-300"
+                      : "bg-secondary text-muted-foreground"
+                  }`}
+                >
+                  Inicio {notificationPreferences.fastingStartEnabled ? "ON" : "OFF"}
+                </button>
+              </div>
+              <input
+                type="time"
+                value={notificationPreferences.fastingStartTime}
+                onChange={event =>
+                  void updateNotificationPrefs({
+                    fastingStartTime: event.target.value,
+                  })
+                }
+                className="w-full px-3 py-2 rounded-lg bg-background/70 border border-border/60 text-sm"
+              />
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    void updateNotificationPrefs({
+                      fastingPhaseEnabled: !notificationPreferences.fastingPhaseEnabled,
+                    })
+                  }
+                  className={`px-2.5 py-2 rounded-md text-xs font-bold ${
+                    notificationPreferences.fastingPhaseEnabled
+                      ? "bg-red-500/20 text-red-300"
+                      : "bg-secondary text-muted-foreground"
+                  }`}
+                >
+                  Fases {notificationPreferences.fastingPhaseEnabled ? "ON" : "OFF"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    void updateNotificationPrefs({
+                      fastingEndEnabled: !notificationPreferences.fastingEndEnabled,
+                    })
+                  }
+                  className={`px-2.5 py-2 rounded-md text-xs font-bold ${
+                    notificationPreferences.fastingEndEnabled
+                      ? "bg-red-500/20 text-red-300"
+                      : "bg-secondary text-muted-foreground"
+                  }`}
+                >
+                  Fim {notificationPreferences.fastingEndEnabled ? "ON" : "OFF"}
+                </button>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-border/50 bg-secondary/15 p-3 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-bold text-indigo-300 flex items-center gap-2">
+                  <MoonStar className="w-4 h-4" /> Sono
+                </p>
+                <button
+                  type="button"
+                  onClick={() =>
+                    void updateNotificationPrefs({
+                      sleepEnabled: !notificationPreferences.sleepEnabled,
+                    })
+                  }
+                  className={`px-2.5 py-1 rounded-md text-xs font-bold ${
+                    notificationPreferences.sleepEnabled
+                      ? "bg-indigo-500/20 text-indigo-300"
+                      : "bg-secondary text-muted-foreground"
+                  }`}
+                >
+                  {notificationPreferences.sleepEnabled ? "ON" : "OFF"}
+                </button>
+              </div>
+              <input
+                type="time"
+                value={notificationPreferences.sleepTime}
+                onChange={event =>
+                  void updateNotificationPrefs({ sleepTime: event.target.value })
+                }
+                className="w-full px-3 py-2 rounded-lg bg-background/70 border border-border/60 text-sm"
+              />
+            </div>
+
+            <div className="rounded-xl border border-border/50 bg-secondary/15 p-3 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-bold text-emerald-300 flex items-center gap-2">
+                  <CalendarCheck2 className="w-4 h-4" /> Resumo Diario
+                </p>
+                <button
+                  type="button"
+                  onClick={() =>
+                    void updateNotificationPrefs({
+                      dailySummaryEnabled: !notificationPreferences.dailySummaryEnabled,
+                    })
+                  }
+                  className={`px-2.5 py-1 rounded-md text-xs font-bold ${
+                    notificationPreferences.dailySummaryEnabled
+                      ? "bg-emerald-500/20 text-emerald-300"
+                      : "bg-secondary text-muted-foreground"
+                  }`}
+                >
+                  {notificationPreferences.dailySummaryEnabled ? "ON" : "OFF"}
+                </button>
+              </div>
+              <input
+                type="time"
+                value={notificationPreferences.dailySummaryTime}
+                onChange={event =>
+                  void updateNotificationPrefs({
+                    dailySummaryTime: event.target.value,
+                  })
+                }
+                className="w-full px-3 py-2 rounded-lg bg-background/70 border border-border/60 text-sm"
+              />
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-border/50 bg-secondary/15 p-3 space-y-2">
+            <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+              Testar Notificacoes
+            </p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {NOTIFICATION_TEST_ACTIONS.map(action => (
+                <button
+                  key={action.type}
+                  type="button"
+                  onClick={() => void handleSendTestNotification(action.type)}
+                  disabled={sendingTestType === action.type}
+                  className="px-2 py-2 rounded-lg border border-border/60 bg-background/50 text-xs font-semibold text-muted-foreground hover:text-foreground hover:border-sky-500/40 transition-all disabled:opacity-60"
+                >
+                  {sendingTestType === action.type ? "Enviando..." : action.label}
+                </button>
+              ))}
             </div>
           </div>
         </div>

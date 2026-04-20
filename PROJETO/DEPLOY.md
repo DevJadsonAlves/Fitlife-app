@@ -43,6 +43,7 @@ npm run vercel:pull:prod
 Para habilitar auditoria e log de erros no Supabase, rode:
 
 - `supabase_security_observability_schema.sql`
+- `supabase_notification_preferences_schema.sql`
 
 ## Fluxo recomendado
 

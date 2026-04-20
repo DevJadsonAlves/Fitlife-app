@@ -305,6 +305,49 @@ export interface UserProfile {
   goal: "lose" | "maintain" | "gain";
 }
 
+export type NotificationFrequency = "light" | "normal" | "strong";
+export type NotificationDay =
+  | "sun"
+  | "mon"
+  | "tue"
+  | "wed"
+  | "thu"
+  | "fri"
+  | "sat";
+
+export type NotificationTestType =
+  | "water"
+  | "meal"
+  | "workout"
+  | "fasting_start"
+  | "fasting_phase"
+  | "fasting_end"
+  | "sleep"
+  | "daily_summary";
+
+export interface NotificationPreferences {
+  enabled: boolean;
+  waterEnabled: boolean;
+  waterTime: string;
+  mealEnabled: boolean;
+  mealTime: string;
+  workoutEnabled: boolean;
+  workoutTime: string;
+  fastingStartEnabled: boolean;
+  fastingStartTime: string;
+  fastingPhaseEnabled: boolean;
+  fastingEndEnabled: boolean;
+  sleepEnabled: boolean;
+  sleepTime: string;
+  dailySummaryEnabled: boolean;
+  dailySummaryTime: string;
+  quietHoursEnabled: boolean;
+  quietStart: string;
+  quietEnd: string;
+  frequency: NotificationFrequency;
+  activeDays: NotificationDay[];
+}
+
 export interface HabitsState {
   currentDate: Date;
   setCurrentDate: (date: Date) => void;
@@ -381,6 +424,11 @@ export interface HabitsState {
   level: number;
   xpToNextLevel: number;
   requestNotificationPermission: () => Promise<boolean>;
+  notificationPreferences: NotificationPreferences;
+  setNotificationPreferences: (
+    updates: Partial<NotificationPreferences>
+  ) => Promise<void>;
+  sendTestNotification: (type: NotificationTestType) => Promise<void>;
 }
 
 const HabitsContext = createContext<HabitsState | null>(null);
@@ -737,6 +785,39 @@ const defaultProfile: UserProfile = {
   goal: "maintain",
 };
 
+const ALL_NOTIFICATION_DAYS: NotificationDay[] = [
+  "sun",
+  "mon",
+  "tue",
+  "wed",
+  "thu",
+  "fri",
+  "sat",
+];
+
+const defaultNotificationPreferences: NotificationPreferences = {
+  enabled: true,
+  waterEnabled: true,
+  waterTime: "10:00",
+  mealEnabled: true,
+  mealTime: "12:00",
+  workoutEnabled: true,
+  workoutTime: "18:00",
+  fastingStartEnabled: true,
+  fastingStartTime: "08:00",
+  fastingPhaseEnabled: true,
+  fastingEndEnabled: true,
+  sleepEnabled: true,
+  sleepTime: "22:30",
+  dailySummaryEnabled: true,
+  dailySummaryTime: "21:00",
+  quietHoursEnabled: true,
+  quietStart: "22:30",
+  quietEnd: "07:00",
+  frequency: "normal",
+  activeDays: ALL_NOTIFICATION_DAYS,
+};
+
 const GAMIFICATION_RESET_KEY_PREFIX = "fitlife_gamification_reset_at";
 const CUSTOM_HABITS_KEY_PREFIX = "fitlife_custom_habits";
 const CUSTOM_HABIT_LOGS_KEY_PREFIX = "fitlife_custom_habit_logs";
@@ -973,6 +1054,186 @@ function mapFastingSessionRow(row: CustomHabitDataRow): FastingSession {
     isActive: Boolean(row.is_active ?? row.isActive),
     created_at: typeof row.created_at === "string" ? row.created_at : undefined,
   };
+}
+
+function normalizeNotificationFrequency(
+  value: unknown
+): NotificationFrequency {
+  return value === "light" || value === "strong" ? value : "normal";
+}
+
+function normalizeNotificationDay(value: unknown): NotificationDay | null {
+  return value === "sun" ||
+    value === "mon" ||
+    value === "tue" ||
+    value === "wed" ||
+    value === "thu" ||
+    value === "fri" ||
+    value === "sat"
+    ? value
+    : null;
+}
+
+function normalizeTimeString(value: unknown, fallback: string): string {
+  if (typeof value !== "string") return fallback;
+
+  const match = /^(\d{2}):(\d{2})$/.exec(value.trim());
+  if (!match) return fallback;
+
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (!Number.isInteger(hour) || !Number.isInteger(minute)) return fallback;
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return fallback;
+
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+function normalizeNotificationDays(value: unknown): NotificationDay[] {
+  const rawDays = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value
+          .split(",")
+          .map(item => item.trim())
+          .filter(Boolean)
+      : [];
+
+  const unique = new Set<NotificationDay>();
+  rawDays.forEach(day => {
+    const normalized = normalizeNotificationDay(day);
+    if (normalized) unique.add(normalized);
+  });
+
+  return unique.size > 0 ? Array.from(unique) : ALL_NOTIFICATION_DAYS;
+}
+
+function normalizeNotificationPreferences(
+  value: Partial<NotificationPreferences>
+): NotificationPreferences {
+  return {
+    enabled:
+      typeof value.enabled === "boolean"
+        ? value.enabled
+        : defaultNotificationPreferences.enabled,
+    waterEnabled:
+      typeof value.waterEnabled === "boolean"
+        ? value.waterEnabled
+        : defaultNotificationPreferences.waterEnabled,
+    waterTime: normalizeTimeString(
+      value.waterTime,
+      defaultNotificationPreferences.waterTime
+    ),
+    mealEnabled:
+      typeof value.mealEnabled === "boolean"
+        ? value.mealEnabled
+        : defaultNotificationPreferences.mealEnabled,
+    mealTime: normalizeTimeString(
+      value.mealTime,
+      defaultNotificationPreferences.mealTime
+    ),
+    workoutEnabled:
+      typeof value.workoutEnabled === "boolean"
+        ? value.workoutEnabled
+        : defaultNotificationPreferences.workoutEnabled,
+    workoutTime: normalizeTimeString(
+      value.workoutTime,
+      defaultNotificationPreferences.workoutTime
+    ),
+    fastingStartEnabled:
+      typeof value.fastingStartEnabled === "boolean"
+        ? value.fastingStartEnabled
+        : defaultNotificationPreferences.fastingStartEnabled,
+    fastingStartTime: normalizeTimeString(
+      value.fastingStartTime,
+      defaultNotificationPreferences.fastingStartTime
+    ),
+    fastingPhaseEnabled:
+      typeof value.fastingPhaseEnabled === "boolean"
+        ? value.fastingPhaseEnabled
+        : defaultNotificationPreferences.fastingPhaseEnabled,
+    fastingEndEnabled:
+      typeof value.fastingEndEnabled === "boolean"
+        ? value.fastingEndEnabled
+        : defaultNotificationPreferences.fastingEndEnabled,
+    sleepEnabled:
+      typeof value.sleepEnabled === "boolean"
+        ? value.sleepEnabled
+        : defaultNotificationPreferences.sleepEnabled,
+    sleepTime: normalizeTimeString(
+      value.sleepTime,
+      defaultNotificationPreferences.sleepTime
+    ),
+    dailySummaryEnabled:
+      typeof value.dailySummaryEnabled === "boolean"
+        ? value.dailySummaryEnabled
+        : defaultNotificationPreferences.dailySummaryEnabled,
+    dailySummaryTime: normalizeTimeString(
+      value.dailySummaryTime,
+      defaultNotificationPreferences.dailySummaryTime
+    ),
+    quietHoursEnabled:
+      typeof value.quietHoursEnabled === "boolean"
+        ? value.quietHoursEnabled
+        : defaultNotificationPreferences.quietHoursEnabled,
+    quietStart: normalizeTimeString(
+      value.quietStart,
+      defaultNotificationPreferences.quietStart
+    ),
+    quietEnd: normalizeTimeString(
+      value.quietEnd,
+      defaultNotificationPreferences.quietEnd
+    ),
+    frequency: normalizeNotificationFrequency(value.frequency),
+    activeDays: normalizeNotificationDays(value.activeDays),
+  };
+}
+
+function mapNotificationPreferencesRow(
+  row: CustomHabitDataRow
+): NotificationPreferences {
+  return normalizeNotificationPreferences({
+    enabled: Boolean(row.enabled ?? row.notifications_enabled ?? true),
+    waterEnabled: Boolean(row.water_enabled ?? row.waterEnabled ?? true),
+    waterTime: String(row.water_time ?? row.waterTime ?? "10:00"),
+    mealEnabled: Boolean(row.meal_enabled ?? row.mealEnabled ?? true),
+    mealTime: String(row.meal_time ?? row.mealTime ?? "12:00"),
+    workoutEnabled: Boolean(row.workout_enabled ?? row.workoutEnabled ?? true),
+    workoutTime: String(row.workout_time ?? row.workoutTime ?? "18:00"),
+    fastingStartEnabled: Boolean(
+      row.fasting_start_enabled ?? row.fastingStartEnabled ?? true
+    ),
+    fastingStartTime: String(
+      row.fasting_start_time ?? row.fastingStartTime ?? "08:00"
+    ),
+    fastingPhaseEnabled: Boolean(
+      row.fasting_phase_enabled ?? row.fastingPhaseEnabled ?? true
+    ),
+    fastingEndEnabled: Boolean(
+      row.fasting_end_enabled ?? row.fastingEndEnabled ?? true
+    ),
+    sleepEnabled: Boolean(row.sleep_enabled ?? row.sleepEnabled ?? true),
+    sleepTime: String(row.sleep_time ?? row.sleepTime ?? "22:30"),
+    dailySummaryEnabled: Boolean(
+      row.daily_summary_enabled ?? row.dailySummaryEnabled ?? true
+    ),
+    dailySummaryTime: String(
+      row.daily_summary_time ?? row.dailySummaryTime ?? "21:00"
+    ),
+    quietHoursEnabled: Boolean(
+      row.quiet_hours_enabled ?? row.quietHoursEnabled ?? true
+    ),
+    quietStart: String(row.quiet_start ?? row.quietStart ?? "22:30"),
+    quietEnd: String(row.quiet_end ?? row.quietEnd ?? "07:00"),
+    frequency:
+      typeof row.frequency === "string"
+        ? (row.frequency as NotificationFrequency)
+        : undefined,
+    activeDays: Array.isArray(row.active_days)
+      ? (row.active_days as NotificationDay[])
+      : Array.isArray(row.activeDays)
+        ? (row.activeDays as NotificationDay[])
+        : undefined,
+  });
 }
 
 function normalizeMealType(value: unknown): MealType {
@@ -1254,13 +1515,16 @@ export function HabitsProvider({ children }: { children: React.ReactNode }) {
   const [customHabitLogs, setCustomHabitLogs] = useState<CustomHabitLog[]>([]);
   const [userProfile, setUserProfileState] = useState<UserProfile | null>(null);
   const [goals, setGoalsState] = useState<DailyGoals>(defaultGoals);
+  const [notificationPreferences, setNotificationPreferencesState] =
+    useState<NotificationPreferences>(defaultNotificationPreferences);
   const [achievements, setAchievements] =
     useState<Achievement[]>(freshAchievements);
   const [gamificationResetAt, setGamificationResetAt] = useState<string | null>(
     null
   );
   const [loading, setLoading] = useState(true);
-  const reminderKeysRef = useRef<Set<string>>(new Set());
+  const notificationKeysRef = useRef<Set<string>>(new Set());
+  const notificationDateRef = useRef<string>("");
 
   // Carregar dados do Supabase
   useEffect(() => {
@@ -1288,6 +1552,7 @@ export function HabitsProvider({ children }: { children: React.ReactNode }) {
           { data: profile },
           { data: userGoals },
           { data: unlocked },
+          { data: notificationPrefsData, error: notificationPrefsError },
         ] = await Promise.all([
           supabase.from("water_entries").select("*").eq("user_id", user.id),
           supabase.from("workout_entries").select("*").eq("user_id", user.id),
@@ -1327,6 +1592,11 @@ export function HabitsProvider({ children }: { children: React.ReactNode }) {
             .from("unlocked_achievements")
             .select("*")
             .eq("user_id", user.id),
+          supabase
+            .from("notification_preferences")
+            .select("*")
+            .eq("user_id", user.id)
+            .maybeSingle(),
         ]);
 
         const storedGamificationResetAt = readGamificationResetAt(user.id);
@@ -1449,6 +1719,16 @@ export function HabitsProvider({ children }: { children: React.ReactNode }) {
             sleepHours: userGoals.sleep_hours,
             weightGoal: userGoals.weight_goal,
           });
+
+        if (notificationPrefsError) {
+          setNotificationPreferencesState(defaultNotificationPreferences);
+        } else if (notificationPrefsData) {
+          setNotificationPreferencesState(
+            mapNotificationPreferencesRow(notificationPrefsData)
+          );
+        } else {
+          setNotificationPreferencesState(defaultNotificationPreferences);
+        }
 
         if (unlocked) {
           const updatedAchievements = defaultAchievements.map(a => {
@@ -1995,6 +2275,10 @@ export function HabitsProvider({ children }: { children: React.ReactNode }) {
       supabase.from("fasting_sessions").delete().eq("user_id", user.id),
       supabase.from("unlocked_achievements").delete().eq("user_id", user.id),
       supabase.from("user_goals").delete().eq("user_id", user.id),
+      supabase
+        .from("notification_preferences")
+        .delete()
+        .eq("user_id", user.id),
       supabase.from("profiles").upsert(resetProfile),
     ]);
 
@@ -2040,6 +2324,7 @@ export function HabitsProvider({ children }: { children: React.ReactNode }) {
     setCustomHabitLogs([]);
     setUserProfileState(defaultProfile);
     setGoalsState(defaultGoals);
+    setNotificationPreferencesState(defaultNotificationPreferences);
     setAchievements(freshAchievements());
     void logAuditEvent({
       action: "full_data_reset",
@@ -2588,20 +2873,354 @@ export function HabitsProvider({ children }: { children: React.ReactNode }) {
   const level = Math.floor(xp / 100) + 1;
   const xpToNextLevel = level * 100;
 
+  const timeToMinutes = (value: string): number => {
+    const [hourRaw, minuteRaw] = value.split(":");
+    const hour = Number(hourRaw);
+    const minute = Number(minuteRaw);
+    if (!Number.isFinite(hour) || !Number.isFinite(minute)) return 0;
+    return hour * 60 + minute;
+  };
+
+  const isQuietHoursNow = (
+    nowTime: string,
+    quietStart: string,
+    quietEnd: string
+  ): boolean => {
+    const nowMinutes = timeToMinutes(nowTime);
+    const startMinutes = timeToMinutes(quietStart);
+    const endMinutes = timeToMinutes(quietEnd);
+
+    if (startMinutes === endMinutes) return false;
+    if (startMinutes < endMinutes) {
+      return nowMinutes >= startMinutes && nowMinutes < endMinutes;
+    }
+
+    return nowMinutes >= startMinutes || nowMinutes < endMinutes;
+  };
+
+  const emitNotification = useCallback(
+    ({
+      key,
+      title,
+      body,
+      toastMessage,
+    }: {
+      key: string;
+      title: string;
+      body: string;
+      toastMessage?: string;
+    }) => {
+      if (notificationKeysRef.current.has(key)) return false;
+      notificationKeysRef.current.add(key);
+
+      toast.info(toastMessage || body);
+
+      if ("Notification" in window && Notification.permission === "granted") {
+        new Notification(title, { body, tag: key });
+      }
+
+      return true;
+    },
+    []
+  );
+
   const requestNotificationPermission = async () => {
     if (!("Notification" in window)) return false;
     const permission = await Notification.requestPermission();
     return permission === "granted";
   };
 
+  const setNotificationPreferences = async (
+    updates: Partial<NotificationPreferences>
+  ) => {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const nextPreferences = normalizeNotificationPreferences({
+      ...notificationPreferences,
+      ...updates,
+    });
+
+    const { error } = await supabase.from("notification_preferences").upsert({
+      user_id: user.id,
+      enabled: nextPreferences.enabled,
+      water_enabled: nextPreferences.waterEnabled,
+      water_time: nextPreferences.waterTime,
+      meal_enabled: nextPreferences.mealEnabled,
+      meal_time: nextPreferences.mealTime,
+      workout_enabled: nextPreferences.workoutEnabled,
+      workout_time: nextPreferences.workoutTime,
+      fasting_start_enabled: nextPreferences.fastingStartEnabled,
+      fasting_start_time: nextPreferences.fastingStartTime,
+      fasting_phase_enabled: nextPreferences.fastingPhaseEnabled,
+      fasting_end_enabled: nextPreferences.fastingEndEnabled,
+      sleep_enabled: nextPreferences.sleepEnabled,
+      sleep_time: nextPreferences.sleepTime,
+      daily_summary_enabled: nextPreferences.dailySummaryEnabled,
+      daily_summary_time: nextPreferences.dailySummaryTime,
+      quiet_hours_enabled: nextPreferences.quietHoursEnabled,
+      quiet_start: nextPreferences.quietStart,
+      quiet_end: nextPreferences.quietEnd,
+      frequency: nextPreferences.frequency,
+      active_days: nextPreferences.activeDays,
+      updated_at: new Date().toISOString(),
+    });
+
+    if (error) {
+      toast.error("Nao foi possivel salvar as notificacoes.");
+      throw error;
+    }
+
+    setNotificationPreferencesState(nextPreferences);
+    void logAuditEvent({
+      action: "notification_preferences_updated",
+      scope: "notifications",
+      metadata: {
+        enabled: nextPreferences.enabled,
+        frequency: nextPreferences.frequency,
+      },
+    });
+  };
+
+  const sendTestNotification = async (type: NotificationTestType) => {
+    if ("Notification" in window && Notification.permission === "default") {
+      await Notification.requestPermission();
+    }
+
+    const templates: Record<NotificationTestType, { title: string; body: string }> = {
+      water: {
+        title: "FitLife • Agua",
+        body: "Hora da hidratacao — Beba 300 ml agora.",
+      },
+      meal: {
+        title: "FitLife • Refeicoes",
+        body: "Lembrete de refeicao — Planeje a proxima refeicao.",
+      },
+      workout: {
+        title: "FitLife • Treino",
+        body: "Treino do dia — Alguns minutos hoje mantem seu streak vivo.",
+      },
+      fasting_start: {
+        title: "FitLife • Jejum",
+        body: "Pronto para iniciar seu jejum no horario planejado?",
+      },
+      fasting_phase: {
+        title: "FitLife • Fase do Jejum",
+        body: "Fase avancada alcancada. Continue firme e hidratado.",
+      },
+      fasting_end: {
+        title: "FitLife • Meta de Jejum",
+        body: "Meta atingida — Deseja encerrar agora?",
+      },
+      sleep: {
+        title: "FitLife • Sono",
+        body: "Rotina de sono — Hora de desacelerar para dormir melhor.",
+      },
+      daily_summary: {
+        title: "FitLife • Resumo Diario",
+        body: "Seu resumo do dia esta pronto para revisao.",
+      },
+    };
+
+    const template = templates[type];
+    emitNotification({
+      key: `test:${type}:${Date.now()}`,
+      title: template.title,
+      body: template.body,
+      toastMessage: `Teste enviado: ${template.body}`,
+    });
+  };
+
   useEffect(() => {
     if (loading || typeof window === "undefined") return;
 
-    const notifyPendingHabits = () => {
+    const notifyScheduledEvents = () => {
       const now = new Date();
       const dateStr = formatDate(now);
       const timeStr = now.toTimeString().slice(0, 5);
       const dayLogs = customHabitLogs.filter(log => log.date === dateStr);
+      const dayKey = now.getDay();
+      const weekDayMap: NotificationDay[] = [
+        "sun",
+        "mon",
+        "tue",
+        "wed",
+        "thu",
+        "fri",
+        "sat",
+      ];
+      const weekDay = weekDayMap[dayKey];
+
+      if (notificationDateRef.current !== dateStr) {
+        notificationDateRef.current = dateStr;
+        notificationKeysRef.current.clear();
+      }
+
+      if (!notificationPreferences.enabled) return;
+      if (!notificationPreferences.activeDays.includes(weekDay)) return;
+      if (
+        notificationPreferences.quietHoursEnabled &&
+        isQuietHoursNow(
+          timeStr,
+          notificationPreferences.quietStart,
+          notificationPreferences.quietEnd
+        )
+      ) {
+        return;
+      }
+
+      const waterTotal = waterEntries
+        .filter(entry => entry.date === dateStr)
+        .reduce((sum, entry) => sum + entry.amount, 0);
+      const caloriesTotal = foodEntries
+        .filter(entry => entry.date === dateStr)
+        .reduce((sum, entry) => sum + entry.calories, 0);
+      const workoutMinutes = workoutEntries
+        .filter(entry => entry.date === dateStr)
+        .reduce((sum, entry) => sum + entry.duration, 0);
+      const hasSleep = sleepEntries.some(entry => entry.date === dateStr);
+      const activeFasting = fastingSessions.find(session => session.isActive);
+
+      if (
+        notificationPreferences.waterEnabled &&
+        notificationPreferences.waterTime === timeStr &&
+        waterTotal < goals.water
+      ) {
+        const remainingWater = Math.max(0, goals.water - waterTotal);
+        emitNotification({
+          key: `water:${dateStr}:${timeStr}`,
+          title: "FitLife • Agua",
+          body: `Hora da hidratacao — Faltam ${remainingWater} ml para a meta.`,
+        });
+      }
+
+      if (
+        notificationPreferences.mealEnabled &&
+        notificationPreferences.mealTime === timeStr &&
+        caloriesTotal <= Math.round(goals.calories * 0.5)
+      ) {
+        emitNotification({
+          key: `meal:${dateStr}:${timeStr}`,
+          title: "FitLife • Refeicoes",
+          body:
+            caloriesTotal === 0
+              ? "Lembrete de refeicao — Registre sua primeira refeicao do dia."
+              : "Lembrete de refeicao — Ajuste sua alimentacao para manter a meta.",
+        });
+      }
+
+      if (
+        notificationPreferences.workoutEnabled &&
+        notificationPreferences.workoutTime === timeStr &&
+        workoutMinutes < goals.workoutMinutes
+      ) {
+        const remainingWorkout = Math.max(0, goals.workoutMinutes - workoutMinutes);
+        emitNotification({
+          key: `workout:${dateStr}:${timeStr}`,
+          title: "FitLife • Treino",
+          body: `Treino do dia — Faltam ${remainingWorkout} min para sua meta.`,
+        });
+      }
+
+      if (
+        notificationPreferences.fastingStartEnabled &&
+        notificationPreferences.fastingStartTime === timeStr &&
+        !activeFasting
+      ) {
+        emitNotification({
+          key: `fasting-start:${dateStr}:${timeStr}`,
+          title: "FitLife • Jejum",
+          body: "Seu horario de jejum chegou. Quer iniciar agora?",
+        });
+      }
+
+      if (activeFasting) {
+        const elapsedHours =
+          (now.getTime() - new Date(activeFasting.startTime).getTime()) /
+          (1000 * 60 * 60);
+
+        if (notificationPreferences.fastingPhaseEnabled) {
+          const milestones =
+            notificationPreferences.frequency === "light"
+              ? [12]
+              : notificationPreferences.frequency === "strong"
+                ? [4, 8, 12, 16, 20]
+                : [8, 12, 16];
+
+          const phaseLabels: Record<number, string> = {
+            4: "Queda de glicose",
+            8: "Transicao metabolica",
+            12: "Queima de gordura",
+            16: "Cetose leve",
+            20: "Jejum prolongado",
+          };
+
+          milestones.forEach(milestone => {
+            if (elapsedHours >= milestone) {
+              emitNotification({
+                key: `fasting-phase:${activeFasting.id}:${milestone}`,
+                title: "FitLife • Fase do Jejum",
+                body: `${milestone}h concluidas — ${phaseLabels[milestone] || "Fase avancada"}.`,
+              });
+            }
+          });
+        }
+
+        if (
+          notificationPreferences.fastingEndEnabled &&
+          elapsedHours >= activeFasting.targetDuration
+        ) {
+          emitNotification({
+            key: `fasting-end:${activeFasting.id}`,
+            title: "FitLife • Meta de Jejum",
+            body: "Meta de jejum batida. Deseja encerrar agora?",
+          });
+        }
+      }
+
+      if (
+        notificationPreferences.sleepEnabled &&
+        notificationPreferences.sleepTime === timeStr &&
+        !hasSleep
+      ) {
+        emitNotification({
+          key: `sleep:${dateStr}:${timeStr}`,
+          title: "FitLife • Sono",
+          body: "Rotina de sono — Hora de desacelerar para dormir melhor.",
+        });
+      }
+
+      if (
+        notificationPreferences.dailySummaryEnabled &&
+        notificationPreferences.dailySummaryTime === timeStr
+      ) {
+        const waterDone = waterTotal >= goals.water;
+        const workoutDone = workoutMinutes >= goals.workoutMinutes;
+        const foodDone = caloriesTotal > 0 && caloriesTotal <= goals.calories;
+        const sleepDone = hasSleep;
+        const customStatus = customHabits
+          .filter(habit => habit.isActive)
+          .map(habit => {
+            const log = dayLogs.find(entry => entry.habitId === habit.id);
+            return isCustomHabitComplete(habit, log);
+          });
+        const completedCount = [
+          waterDone,
+          workoutDone,
+          foodDone,
+          sleepDone,
+          ...customStatus,
+        ].filter(Boolean).length;
+        const totalCount = 4 + customStatus.length;
+
+        emitNotification({
+          key: `daily-summary:${dateStr}:${timeStr}`,
+          title: "FitLife • Resumo Diario",
+          body: `${completedCount} de ${totalCount} metas concluidas hoje.`,
+        });
+      }
 
       for (const habit of customHabits) {
         if (
@@ -2614,26 +3233,34 @@ export function HabitsProvider({ children }: { children: React.ReactNode }) {
         const log = dayLogs.find(entry => entry.habitId === habit.id);
         if (isCustomHabitComplete(habit, log)) continue;
 
-        const reminderKey = `${habit.id}:${dateStr}:${timeStr}`;
-        if (reminderKeysRef.current.has(reminderKey)) continue;
-
-        reminderKeysRef.current.add(reminderKey);
-        toast.info(`Lembrete: ${habit.name}`);
-
-        if ("Notification" in window && Notification.permission === "granted") {
-          new Notification("FitLife", {
-            body: `Hora de fazer: ${habit.name}`,
-            tag: reminderKey,
-          });
-        }
+        emitNotification({
+          key: `custom:${habit.id}:${dateStr}:${timeStr}`,
+          title: "FitLife • Habito Personalizado",
+          body: `Hora de fazer: ${habit.name}`,
+          toastMessage: `Lembrete: ${habit.name}`,
+        });
       }
     };
 
-    notifyPendingHabits();
-    const intervalId = window.setInterval(notifyPendingHabits, 30000);
+    notifyScheduledEvents();
+    const intervalId = window.setInterval(notifyScheduledEvents, 30000);
 
     return () => window.clearInterval(intervalId);
-  }, [customHabits, customHabitLogs, loading]);
+  }, [
+    customHabits,
+    customHabitLogs,
+    emitNotification,
+    fastingSessions,
+    foodEntries,
+    goals.calories,
+    goals.water,
+    goals.workoutMinutes,
+    loading,
+    notificationPreferences,
+    sleepEntries,
+    waterEntries,
+    workoutEntries,
+  ]);
 
   // Verificar conquistas
   useEffect(() => {
@@ -2820,6 +3447,9 @@ export function HabitsProvider({ children }: { children: React.ReactNode }) {
     level,
     xpToNextLevel,
     requestNotificationPermission,
+    notificationPreferences,
+    setNotificationPreferences,
+    sendTestNotification,
   };
 
   if (loading) return null;
